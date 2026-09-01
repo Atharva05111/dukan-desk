@@ -1,0 +1,13 @@
+{
+  "expo": {
+    "name": "Dukan Desk",
+    "slug": "dukan-desk",
+    "scheme": "dukandesk",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "plugins": ["expo-router"],
+    "android": { "package": "com.yourorg.dukandesk" },
+    "ios": { "bundleIdentifier": "com.yourorg.dukandesk" }
+  }
+}

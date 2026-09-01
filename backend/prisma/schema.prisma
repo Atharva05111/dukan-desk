@@ -1,0 +1,226 @@
+// Prisma schema — matches docs/03-architecture.md data model
+// Run: npx prisma migrate dev --name init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+generator json {
+  provider = "prisma-client-js"
+}
+
+enum BusinessType {
+  RESTAURANT
+  CAFE
+  RETAIL
+}
+
+enum StaffRole {
+  OWNER
+  MANAGER
+  CASHIER
+  WAITER
+  KITCHEN
+}
+
+enum StockTxnType {
+  IN
+  OUT
+  WASTAGE
+  ADJUSTMENT
+}
+
+enum OrderStatus {
+  OPEN
+  ON_HOLD
+  KOT_SENT
+  BILLED
+  CLOSED
+  CANCELLED
+}
+
+enum PaymentMode {
+  CASH
+  UPI
+  CARD
+  OTHER
+}
+
+model Business {
+  id           String       @id @default(uuid())
+  name         String
+  businessType BusinessType
+  gstNumber    String?
+  createdAt    DateTime     @default(now())
+
+  outlets    Outlet[]
+  staff      Staff[]
+  expenses   Expense[]
+  embeddings AiEmbedding[]
+}
+
+model Outlet {
+  id         String   @id @default(uuid())
+  business   Business @relation(fields: [businessId], references: [id])
+  businessId String
+  name       String
+  address    String?
+  createdAt  DateTime @default(now())
+
+  menuItems  MenuItem[]
+  stockItems StockItem[]
+  orders     Order[]
+  tables     DineTable[]
+  expenses   Expense[]
+}
+
+model Staff {
+  id         String   @id @default(uuid())
+  business   Business @relation(fields: [businessId], references: [id])
+  businessId String
+  name       String
+  phone      String   @unique
+  role       StaffRole
+  passwordHash String
+  createdAt  DateTime @default(now())
+}
+
+model Category {
+  id        String     @id @default(uuid())
+  name      String
+  menuItems MenuItem[]
+}
+
+model MenuItem {
+  id          String   @id @default(uuid())
+  outlet      Outlet   @relation(fields: [outletId], references: [id])
+  outletId    String
+  category    Category? @relation(fields: [categoryId], references: [id])
+  categoryId  String?
+  name        String
+  price       Decimal  @db.Decimal(10, 2)
+  taxRatePct  Decimal  @default(0) @db.Decimal(5, 2)
+  imageUrl    String?
+  sku         String?  // retail
+  barcode     String?  // retail
+  unit        String?  // retail: pcs/kg/litre
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  ingredients MenuItemIngredient[]
+  orderItems  OrderItem[]
+}
+
+// Optional recipe/BOM: how much raw stock is consumed per sale
+model MenuItemIngredient {
+  id          String    @id @default(uuid())
+  menuItem    MenuItem  @relation(fields: [menuItemId], references: [id])
+  menuItemId  String
+  stockItem   StockItem @relation(fields: [stockItemId], references: [id])
+  stockItemId String
+  quantity    Decimal   @db.Decimal(10, 3) // e.g. 0.2 kg per plate
+}
+
+model StockItem {
+  id                String   @id @default(uuid())
+  outlet            Outlet   @relation(fields: [outletId], references: [id])
+  outletId          String
+  name              String
+  unit              String   // kg, g, litre, pcs, dozen
+  currentQty        Decimal  @default(0) @db.Decimal(12, 3)
+  avgCostPerUnit    Decimal  @default(0) @db.Decimal(12, 2)
+  lowStockThreshold Decimal  @default(0) @db.Decimal(12, 3)
+  expiryDate        DateTime?
+  createdAt         DateTime @default(now())
+
+  transactions StockTransaction[]
+  usedIn       MenuItemIngredient[]
+}
+
+model StockTransaction {
+  id            String       @id @default(uuid())
+  stockItem     StockItem    @relation(fields: [stockItemId], references: [id])
+  stockItemId   String
+  type          StockTxnType
+  quantity      Decimal      @db.Decimal(12, 3)
+  ratePerUnit   Decimal      @db.Decimal(12, 2)
+  totalCost     Decimal      @db.Decimal(12, 2)
+  reason        String?      // for wastage/adjustment
+  occurredAt    DateTime     @default(now())
+}
+
+model DineTable {
+  id        String  @id @default(uuid())
+  outlet    Outlet  @relation(fields: [outletId], references: [id])
+  outletId  String
+  label     String  // "Table 1"
+  orders    Order[]
+}
+
+model Order {
+  id           String      @id @default(uuid())
+  outlet       Outlet      @relation(fields: [outletId], references: [id])
+  outletId     String
+  table        DineTable?  @relation(fields: [tableId], references: [id])
+  tableId      String?
+  status       OrderStatus @default(OPEN)
+  totalAmount  Decimal     @default(0) @db.Decimal(12, 2)
+  discountAmt  Decimal     @default(0) @db.Decimal(12, 2)
+  createdAt    DateTime    @default(now())
+  closedAt     DateTime?
+
+  items    OrderItem[]
+  payments Payment[]
+}
+
+model OrderItem {
+  id         String   @id @default(uuid())
+  order      Order    @relation(fields: [orderId], references: [id])
+  orderId    String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+  menuItemId String
+  quantity   Int
+  unitPrice  Decimal  @db.Decimal(10, 2)
+  lineTotal  Decimal  @db.Decimal(12, 2)
+}
+
+model Payment {
+  id        String      @id @default(uuid())
+  order     Order       @relation(fields: [orderId], references: [id])
+  orderId   String
+  mode      PaymentMode
+  amount    Decimal     @db.Decimal(12, 2)
+  paidAt    DateTime    @default(now())
+}
+
+model Expense {
+  id          String   @id @default(uuid())
+  business    Business @relation(fields: [businessId], references: [id])
+  businessId  String
+  outlet      Outlet?  @relation(fields: [outletId], references: [id])
+  outletId    String?
+  category    String   // rent, salary, utilities, misc
+  amount      Decimal  @db.Decimal(12, 2)
+  note        String?
+  incurredAt  DateTime @default(now())
+}
+
+// RAG vector store — pgvector extension required
+model AiEmbedding {
+  id          String   @id @default(uuid())
+  business    Business @relation(fields: [businessId], references: [id])
+  businessId  String
+  sourceText  String
+  embedding   Unsupported("vector(768)") // Gemini text-embedding dimension
+  periodStart DateTime?
+  periodEnd   DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([businessId])
+}
