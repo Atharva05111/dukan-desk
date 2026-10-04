@@ -25,6 +25,7 @@ export default function LoginScreen() {
       const { data } = await api.post('/auth/login', { phone: phone.trim(), password });
       await setSession({
         token: data.accessToken ?? data.token,
+        refreshToken: data.refreshToken ?? null,
         businessId: data.business?.id ?? data.businessId,
         businessName: data.business?.name ?? null,
         businessType: data.business?.businessType ?? data.businessType ?? null,

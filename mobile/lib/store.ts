@@ -12,7 +12,8 @@ export type SessionStaff = {
 };
 
 type PersistedSession = {
-  token: string | null;
+  token: string | null; // short-lived access token (15 min), sent on every request
+  refreshToken: string | null; // long-lived (30 days), only used to get a new access token
   businessId: string | null;
   businessName: string | null;
   businessType: BusinessType | null;
@@ -32,6 +33,7 @@ const STORAGE_KEY = 'dukan-desk/session';
 
 const emptySession: PersistedSession = {
   token: null,
+  refreshToken: null,
   businessId: null,
   businessName: null,
   businessType: null,

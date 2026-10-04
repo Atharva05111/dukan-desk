@@ -38,6 +38,7 @@ export default function SignupScreen() {
       });
       await setSession({
         token: data.accessToken ?? data.token,
+        refreshToken: data.refreshToken ?? null,
         businessId: data.business?.id ?? data.businessId,
         businessName: data.business?.name ?? businessName.trim(),
         businessType,

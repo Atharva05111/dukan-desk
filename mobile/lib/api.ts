@@ -1,14 +1,18 @@
-import axios from 'axios';
+import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { useAuthStore } from './store';
 
 // Point this at your backend (see ../backend). Use your machine's LAN IP
 // when testing on a physical device — "localhost" won't resolve from the phone.
-export const api = axios.create({
-  baseURL: process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000/api',
-  // Generous on purpose: the free Render server sleeps when idle and takes
-  // ~1 minute to wake, so the first request after a quiet spell is slow.
-  timeout: 75000,
-});
+const baseURL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000/api';
+// Generous on purpose: the free Render server sleeps when idle and takes
+// ~1 minute to wake, so the first request after a quiet spell is slow.
+const timeout = 75000;
+
+export const api = axios.create({ baseURL, timeout });
+
+// Interceptor-free client used only for /auth/refresh. If a failing refresh went
+// through `api`, its 401 would trigger another refresh, and so on forever.
+const refreshClient = axios.create({ baseURL, timeout });
 
 // Attach the JWT from the session store to every request.
 api.interceptors.request.use((config) => {
@@ -20,22 +24,75 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Swap the refresh token for a new token pair. Resolves to the new access token,
+// or null if the server rejected the refresh token (the session is really over).
+// Network failures throw instead, so a flaky connection doesn't log anyone out.
+async function refreshSession(): Promise<string | null> {
+  const { refreshToken, setSession } = useAuthStore.getState();
+  if (!refreshToken) return null;
+  try {
+    const { data } = await refreshClient.post('/auth/refresh', { refreshToken });
+    await setSession({ token: data.accessToken, refreshToken: data.refreshToken });
+    return data.accessToken;
+  } catch (e) {
+    if ((e as AxiosError).response?.status === 401) return null;
+    throw e;
+  }
+}
+
+// If several screens hit a 401 at the same moment, they all wait on this one
+// refresh instead of each firing their own.
+let refreshInFlight: Promise<string | null> | null = null;
+
+function getRefreshedToken(): Promise<string | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = refreshSession().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
 // Surface a friendly, consistent message regardless of how the backend fails
 // (network error, 4xx/5xx with a `message` body, or a plain thrown Error).
+function toFriendlyError(error: any): Error {
+  const backendMessage = error?.response?.data?.message;
+  const message = Array.isArray(backendMessage)
+    ? backendMessage.join(', ')
+    : backendMessage || error?.message || 'Something went wrong. Please try again.';
+  return new Error(message);
+}
+
+type RetriableConfig = InternalAxiosRequestConfig & { _retried?: boolean };
+
 api.interceptors.response.use(
   (res) => res,
-  (error) => {
-    const backendMessage = error?.response?.data?.message;
-    const message = Array.isArray(backendMessage)
-      ? backendMessage.join(', ')
-      : backendMessage || error?.message || 'Something went wrong. Please try again.';
+  async (error) => {
+    const original = error?.config as RetriableConfig | undefined;
+    // A 401 from /auth/login just means a wrong password — not an expired session.
+    const isAuthCall = original?.url?.startsWith('/auth/') ?? false;
 
-    // 401 → session is no longer valid, drop it so the auth guard redirects to /login.
-    if (error?.response?.status === 401) {
-      useAuthStore.getState().logout();
+    // 401 on a normal request → access token expired. Refresh once, then retry.
+    if (error?.response?.status === 401 && original && !original._retried && !isAuthCall) {
+      original._retried = true;
+
+      let newToken: string | null;
+      try {
+        newToken = await getRefreshedToken();
+      } catch {
+        // Couldn't reach the server to refresh — keep the session, report the error.
+        return Promise.reject(toFriendlyError(error));
+      }
+
+      if (newToken) {
+        return api(original); // the request interceptor attaches the new token
+      }
+
+      // Refresh token rejected → drop the session so the auth guard redirects to /login.
+      await useAuthStore.getState().logout();
     }
 
-    return Promise.reject(new Error(message));
+    return Promise.reject(toFriendlyError(error));
   },
 );
 
