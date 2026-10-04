@@ -13,9 +13,11 @@ export class CatalogService {
     return this.prisma.menuItem.create({ data: dto });
   }
 
-  bulkCreateItems(outletId: string, items: any[]) {
+  // Pick fields explicitly: scan drafts carry a free-text `category`, which isn't
+  // a MenuItem column (MenuItem links to Category by categoryId).
+  bulkCreateItems(outletId: string, items: { name: string; price: number }[]) {
     return this.prisma.menuItem.createMany({
-      data: items.map((i) => ({ ...i, outletId })),
+      data: items.map((i) => ({ outletId, name: i.name, price: i.price })),
     });
   }
 }
