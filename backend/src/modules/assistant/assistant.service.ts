@@ -1,21 +1,20 @@
 import { Injectable } from '@nestjs/common';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { PrismaService } from '../common/prisma.service';
 import { ReportsService } from '../reports/reports.service';
+import { DEFAULT_TEXT_MODEL, geminiFailure, getGemini } from '../common/gemini';
 
 // RAG flow — see docs/04-flow-diagrams.md §5 and docs/03-architecture.md §5.
 // IMPORTANT: every vector search / SQL query here MUST be filtered by
 // businessId. Never let one owner's question retrieve another business's data.
 @Injectable()
 export class AssistantService {
-  private readonly genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY ?? '');
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly reports: ReportsService,
   ) {}
 
   async answer(businessId: string, question: string) {
+    const ai = getGemini(); // fail fast with a clear message if no API key is configured
     const { from, to } = this.resolveDateRange(question);
 
     // 1. Structured numbers from the single-source-of-truth P&L engine.
@@ -28,10 +27,6 @@ export class AssistantService {
     const context: string[] = [];
 
     // 3. Ask Gemini to answer using ONLY the retrieved context + computed numbers.
-    const model = this.genAI.getGenerativeModel({
-      model: process.env.GEMINI_TEXT_MODEL ?? 'gemini-1.5-flash',
-    });
-
     const prompt = `
 You are a business assistant for a small shop owner. Answer the question below
 using ONLY the data provided. Always state the date range the numbers cover.
@@ -46,8 +41,17 @@ Additional context:
 ${context.join('\n') || '(none retrieved)'}
 `;
 
-    const result = await model.generateContent(prompt);
-    return { answer: result.response.text(), period: { from, to }, numbers: pnl };
+    let answer: string | undefined;
+    try {
+      const response = await ai.models.generateContent({
+        model: process.env.GEMINI_TEXT_MODEL ?? DEFAULT_TEXT_MODEL,
+        contents: prompt,
+      });
+      answer = response.text;
+    } catch (err) {
+      throw geminiFailure(err);
+    }
+    return { answer, period: { from, to }, numbers: pnl };
   }
 
   // Very rough placeholder — replace with a proper date-range parser
