@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack, useRouter, useSegments } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { LoadingScreen } from '../components/LoadingScreen';
 import { colors } from '../lib/theme';
 import { isLoggedIn, useAuthStore } from '../lib/store';
 
@@ -48,15 +49,17 @@ function AppGate({ children }: { children: React.ReactNode }) {
 
   useAuthGuard();
 
-  if (!hydrated) {
-    return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}>
-        <ActivityIndicator size="large" color={colors.primary} />
-      </View>
-    );
-  }
+  // The intro plays on top while the app mounts underneath; the auth guard picks
+  // login/signup/home behind it, then the intro fades away to reveal that screen.
+  const [introVisible, setIntroVisible] = useState(true);
+  const hideIntro = useCallback(() => setIntroVisible(false), []);
 
-  return <>{children}</>;
+  return (
+    <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      {hydrated && children}
+      {introVisible && <LoadingScreen ready={hydrated} onDone={hideIntro} />}
+    </View>
+  );
 }
 
 export default function RootLayout() {
