@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { Link, router } from 'expo-router';
+import { Link, router, useLocalSearchParams } from 'expo-router';
 import { Button, Field, Screen } from '../components/ui';
 import { api } from '../lib/api';
 import { colors, spacing, typography } from '../lib/theme';
@@ -8,8 +8,11 @@ import { useAuthStore } from '../lib/store';
 
 export default function LoginScreen() {
   const setSession = useAuthStore((s) => s.setSession);
+  // Set by the signup screen after a successful registration.
+  const params = useLocalSearchParams<{ phone?: string; registered?: string }>();
+  const justRegistered = params.registered === '1';
 
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState(params.phone ?? '');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +54,8 @@ export default function LoginScreen() {
       <Text style={styles.title}>Welcome back</Text>
       <Text style={styles.subtitle}>Log in to manage today's business.</Text>
 
+      {justRegistered && <Text style={styles.success}>Account created — log in to continue.</Text>}
+
       <Field
         label="Phone number"
         placeholder="10-digit mobile number"
@@ -81,6 +86,13 @@ const styles = StyleSheet.create({
   title: { ...typography.h1, marginBottom: spacing.xs },
   subtitle: { ...typography.bodyMuted, marginBottom: spacing.xl },
   error: { color: colors.danger, marginBottom: spacing.md },
+  success: {
+    color: colors.success,
+    backgroundColor: colors.successMuted,
+    padding: spacing.md,
+    borderRadius: 8,
+    marginBottom: spacing.lg,
+  },
   footerRow: { flexDirection: 'row', gap: spacing.xs, justifyContent: 'center', marginTop: spacing.xl },
   link: { color: colors.primary, fontWeight: '600' },
 });

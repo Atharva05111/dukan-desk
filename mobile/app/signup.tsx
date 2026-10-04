@@ -4,7 +4,7 @@ import { Link, router } from 'expo-router';
 import { Button, Field, Screen } from '../components/ui';
 import { api } from '../lib/api';
 import { colors, spacing, typography } from '../lib/theme';
-import { useAuthStore, BusinessType } from '../lib/store';
+import { BusinessType } from '../lib/store';
 
 const BUSINESS_TYPES: { value: BusinessType; label: string }[] = [
   { value: 'RESTAURANT', label: 'Restaurant' },
@@ -13,8 +13,6 @@ const BUSINESS_TYPES: { value: BusinessType; label: string }[] = [
 ];
 
 export default function SignupScreen() {
-  const setSession = useAuthStore((s) => s.setSession);
-
   const [businessName, setBusinessName] = useState('');
   const [businessType, setBusinessType] = useState<BusinessType>('RESTAURANT');
   const [phone, setPhone] = useState('');
@@ -24,29 +22,21 @@ export default function SignupScreen() {
 
   async function handleSignup() {
     setError(null);
-    if (!businessName.trim() || phone.trim().length < 10 || password.length < 4) {
-      setError('Fill in your business name, a valid phone number, and a password (4+ characters).');
+    // Same rule as the backend's SignupDto (@MinLength(6)) so the user sees it here first.
+    if (!businessName.trim() || phone.trim().length < 10 || password.length < 6) {
+      setError('Fill in your business name, a valid phone number, and a password (6+ characters).');
       return;
     }
     setLoading(true);
     try {
-      const { data } = await api.post('/auth/signup', {
+      await api.post('/auth/signup', {
         businessName: businessName.trim(),
         businessType,
         phone: phone.trim(),
         password,
       });
-      await setSession({
-        token: data.accessToken ?? data.token,
-        refreshToken: data.refreshToken ?? null,
-        businessId: data.business?.id ?? data.businessId,
-        businessName: data.business?.name ?? businessName.trim(),
-        businessType,
-        outletId: data.outlet?.id ?? data.outletId,
-        outletName: data.outlet?.name ?? 'Main outlet',
-        staff: data.staff ?? null,
-      });
-      router.replace('/(tabs)');
+      // Account created — send them to log in, with their phone number pre-filled.
+      router.replace({ pathname: '/login', params: { phone: phone.trim(), registered: '1' } });
     } catch (e: any) {
       setError(e.message ?? 'Could not create your account.');
     } finally {
