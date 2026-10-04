@@ -27,11 +27,13 @@ export default function ReportsScreen() {
       (await api.get('/reports/sales-summary', { params: { outletId, from: from.toISOString(), to: to.toISOString() } })).data,
   });
 
+  // The server takes businessId from the login token; it stays in the queryKey only
+  // so cached numbers never leak between accounts on the same phone.
   const plQuery = useQuery<ProfitAndLoss>({
     queryKey: ['profit-loss', businessId, RANGES[rangeIndex].label],
     enabled: Boolean(businessId),
     queryFn: async () =>
-      (await api.get('/reports/profit-loss', { params: { businessId, from: from.toISOString(), to: to.toISOString() } })).data,
+      (await api.get('/reports/profit-loss', { params: { from: from.toISOString(), to: to.toISOString() } })).data,
   });
 
   return (
