@@ -5,7 +5,9 @@ import { useAuthStore } from './store';
 // when testing on a physical device — "localhost" won't resolve from the phone.
 export const api = axios.create({
   baseURL: process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000/api',
-  timeout: 15000,
+  // Generous on purpose: the free Render server sleeps when idle and takes
+  // ~1 minute to wake, so the first request after a quiet spell is slow.
+  timeout: 75000,
 });
 
 // Attach the JWT from the session store to every request.
