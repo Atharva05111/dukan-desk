@@ -21,23 +21,36 @@ export default function ScanMenuScreen() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function pickAndScan() {
+  async function pickAndScan(source: 'camera' | 'library') {
     setError(null);
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const permission =
+      source === 'camera'
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      setError('Photo library access is needed to pick a menu photo.');
+      setError(source === 'camera' ? 'Camera access is needed to take a photo.' : 'Photo library access is needed to pick a photo.');
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.8, mediaTypes: ImagePicker.MediaTypeOptions.Images });
+
+    // base64: send the photo's bytes — the server can't open a file:// path that
+    // only exists on this phone. quality 0.5 keeps it ~1 MB, plenty for reading text.
+    const options: ImagePicker.ImagePickerOptions = { mediaTypes: ['images'], quality: 0.5, base64: true };
+    const result =
+      source === 'camera' ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
     if (result.canceled) return;
 
-    setImageUri(result.assets[0].uri);
+    const asset = result.assets[0];
+    if (!asset.base64) {
+      setError('Could not read this photo. Please try another one.');
+      return;
+    }
+
+    setImageUri(asset.uri);
     setDraftItems([]);
     setScanning(true);
     try {
-      // TODO: upload the image to S3 first and pass the resulting URL — see
-      // backend ai-scan.service.ts TODO about inlineData bytes vs. a public URL.
-      const { data } = await api.post('/ai-scan/menu', { imageUrl: result.assets[0].uri });
+      const mimeType = !asset.mimeType || asset.mimeType === 'image/jpg' ? 'image/jpeg' : asset.mimeType;
+      const { data } = await api.post('/ai-scan/menu', { imageBase64: asset.base64, mimeType });
       setDraftItems(data ?? []);
     } catch (e: any) {
       setError(e.message ?? 'Could not scan this menu.');
@@ -70,31 +83,43 @@ export default function ScanMenuScreen() {
 
   return (
     <Screen>
-      <Stack.Screen options={{ headerShown: true, title: 'Scan Menu with AI' }} />
+      <Stack.Screen options={{ headerShown: true, title: 'Scan with Gemini' }} />
       <Text style={styles.subtitle}>
-        Take a photo of your physical menu and Dukan Desk will draft items for you to review before saving.
+        Photograph your menu or a product packet. Gemini drafts the items with prices — you review them before
+        anything is saved.
       </Text>
 
-      <Button
-        title={imageUri ? 'Choose a different photo' : 'Take / choose menu photo'}
-        variant="secondary"
-        onPress={pickAndScan}
-        icon={<Ionicons name="camera-outline" size={18} color={colors.primary} />}
-      />
+      <View style={styles.sourceRow}>
+        <Button
+          title="Take photo"
+          onPress={() => pickAndScan('camera')}
+          disabled={scanning}
+          style={{ flex: 1 }}
+          icon={<Ionicons name="camera-outline" size={18} color={colors.white} />}
+        />
+        <Button
+          title="Gallery"
+          variant="secondary"
+          onPress={() => pickAndScan('library')}
+          disabled={scanning}
+          style={{ flex: 1 }}
+          icon={<Ionicons name="images-outline" size={18} color={colors.primary} />}
+        />
+      </View>
 
       {imageUri && <Image source={{ uri: imageUri }} style={styles.preview} />}
 
       {scanning && (
         <View style={styles.scanningRow}>
           <ActivityIndicator color={colors.primary} />
-          <Text style={typography.bodyMuted}>Reading your menu…</Text>
+          <Text style={typography.bodyMuted}>Gemini is reading your photo…</Text>
         </View>
       )}
 
       {error && <Text style={styles.error}>{error}</Text>}
 
       {!scanning && imageUri && draftItems.length === 0 && !error && (
-        <EmptyState title="No items detected" subtitle="Try a clearer, well-lit photo of the menu." />
+        <EmptyState title="No items detected" subtitle="Try a clearer, well-lit photo where the prices are readable." />
       )}
 
       {draftItems.length > 0 && (
@@ -131,6 +156,7 @@ export default function ScanMenuScreen() {
 
 const styles = StyleSheet.create({
   subtitle: { ...typography.bodyMuted, marginTop: spacing.md, marginBottom: spacing.lg },
+  sourceRow: { flexDirection: 'row', gap: spacing.sm },
   preview: { width: '100%', height: 200, marginTop: spacing.lg, borderRadius: radius.lg },
   scanningRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.lg },
   error: { color: colors.danger, marginTop: spacing.md },
